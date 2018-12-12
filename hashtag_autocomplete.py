@@ -13,21 +13,21 @@ from datetime import datetime
 
 
 class ParseHastagData(beam.DoFn):
-  def __init__(self):
-    super(ParseHastagData, self).__init__()
-    self.num_parse_errors = Metrics.counter(self.__class__, 'num_parse_errors')
+    def __init__(self):
+        super(ParseHastagData, self).__init__()
+        self.num_parse_errors = Metrics.counter(self.__class__, 'num_parse_errors')
 
-  def process(self, elem):
-    try:
-        row = elem.split(' ')
-        d, t, user, hashtag = row
-        date_time = datetime.strptime('{} {}'.format(d, t), '%Y-%m-%d %H:%M:%S.%f')
-        timestamp = time.mktime(date_time.timetuple())
+    def process(self, elem):
+        try:
+            row = elem.split(' ')
+            d, t, user, hashtag = row
+            date_time = datetime.strptime('{} {}'.format(d, t), '%Y-%m-%d %H:%M:%S.%f')
+            timestamp = time.mktime(date_time.timetuple())
 
-        yield dict(time=timestamp, user=user, hashtag=hashtag, date=d)
-    except Exception as e:
-      self.num_parse_errors.inc()
-      logging.error('Parse error on "%s"', elem, str(e))
+            yield dict(time=timestamp, user=user, hashtag=hashtag, date=d)
+        except Exception as e:
+            self.num_parse_errors.inc()
+            logging.error('Parse error on "%s"', elem, str(e))
 
 
 # Counts hashtag by accomulated number
@@ -60,17 +60,14 @@ with beam.Pipeline() as p:
                 )
 
 
-def calculate_hashtag_weight(elem):
-    pass
-
-
-# # Calculate hashtag by weight
-# with beam.Pipeline() as p:
-#     lines = ( p | beam.io.ReadFromText('data/hashtag.txt')
-#                 | 'parse_raw_data' >> beam.ParDo(ParseHastagData())
-#                 | 'add_time_stamp' >> beam.Map(lambda x: beam.window.TimestampedValue(x, x['time']))
-#                 | 'add_fixed_window' >> beam.WindowInto(beam.window.FixedWindows(24 * 3600))
-#                 | 'combine_and_count' >> beam.CombinePerKey(sum)
-#                 | 'format' >> beam.Map(lambda (hashtag, count): '{}: {}'.format(hashtag, count))
-#                 | 'write' >> beam.io.WriteToText('output/all_hashtag.txt')
-#                 )
+# Calculate hashtag by fixed windows
+with beam.Pipeline() as p:
+    lines = ( p | beam.io.ReadFromText('data/hashtag.txt')
+                | 'parse_raw_data' >> beam.ParDo(ParseHastagData())
+                | 'add_time_stamp' >> beam.Map(lambda x: beam.window.TimestampedValue(x, x['time']))
+                | 'add_fixed_window' >> beam.WindowInto(beam.window.FixedWindows(24 * 3600))
+                | 'map_to_one' >> beam.Map(lambda x: (x['hashtag'], 1))
+                | 'combine_and_count' >> beam.CombinePerKey(sum)
+                | 'format' >> beam.Map(lambda (hashtag, count): '{}: {}'.format(hashtag, count))
+                | 'write' >> beam.io.WriteToText('output/fixed_windows_hashtag.txt')
+                )
